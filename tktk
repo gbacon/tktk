@@ -1,5 +1,5 @@
 #! /usr/bin/perl -w
-
+#
 # Copyright (c) 2000 Greg Bacon <gbacon@cs.uah.edu>.
 # This program is free software.  You may distribute or modify it
 # under the terms of the Artistic license that is distributed with the
@@ -8,7 +8,7 @@
 # The card images in the cards directory came from
 # <URL:http://www.waste.org/~oxymoron/cards/> and are distributed
 # under the terms of the GPL.
-
+#
 # TODO:
 #
 # ???
@@ -16,12 +16,26 @@
 # BUGS:
 #
 # ???
+#
+# Audit Trail:
+#	11/21/00 - jla : Added several improvements:  Detects a win or lose
+#			 state and pops up an appropriate dialog box.  Also
+#			 animates the cards when they move from or to the
+#			 top of the base.
+#
 
 my $CARDS;
+
 BEGIN {
-    # where the card images live
-    #$CARDS = "/foo/gbacon/src/perl/tktk/cards";
-    $CARDS = "cards";
+    use Cwd;
+
+    chop(my $pwd = cwd);
+    (my $dir = $0) =~ s{([^/]*)$}{};
+    chdir ($0 =~ /\// ? $dir : "$pwd/$dir");
+
+	# where the card images live
+
+    $CARDS = $ENV{CARDS} || "cards";
 
     unless (-d $CARDS) {
         $0 =~ s!^.*/!!;
@@ -31,13 +45,15 @@ BEGIN {
 }
 
 my $UPDATED = '2000/02/18';
-my $FONT = '-*-Helvetica-Medium-R-Normal--*-140-*-*-*-*-*-*';
+my $FONT	= '-*-Helvetica-Medium-R-Normal--*-140-*-*-*-*-*-*';
+my $FONTBOLD	= '-*-Helvetica-Bold-R-Normal--*-180-*-*-*-*-*-*';
 
 use strict;
 
 use Tk;
 use Tk::widgets qw/ Dialog ROText /;
 use vars qw/ $CARDWIDTH  $CARDHEIGHT /;
+use vars qw/ $looser $winner /;
 
 # space between cards on a row
 use constant CARDSPACE => 2;
@@ -116,13 +132,21 @@ sub init_field {
 
         my @row = splice @$deck, 0, $_;
         for (@row) {
-            $c->create(
+            my $id = $c->create(
                 'image',
                 int $x, int $y,
-                -anchor => 'nw', 
+                -anchor => 'nw',
                 -image  => $card{$_},
                 -tags   => [ 'field', "card=$_" ],
             );
+
+		# Save the canvas id of the top card in the field
+		# so we can tell when we have a winner !  Note: we
+		# can't just assume it will be 1, because the canvas
+		# id numbers keep incrementing even after all the
+		# items on the canvas are deleted in new_game() !!
+
+	    $game->{TOPID} = $id if @row == 1;
 
             @{ $game->{POS}{$_} }{ qw/ X Y / } = ($x, $y);
 
@@ -168,9 +192,18 @@ sub next_base {
         -image  => $image,
         -tags   => [ 'base', "card=$up" ],
     );
+    $game->{LEFT} = $c->createText(
+        int $x - $CARDWIDTH / 2 - 25, int $y + $CARDHEIGHT / 2,
+	-font => $FONTBOLD,
+	-fill => 'blue',
+    ) unless exists $game->{LEFT};
+    $c->dchars($game->{LEFT}, 0, 'end');
+    $c->insert($game->{LEFT}, 'end', "Undealt: " . scalar @$deck);
 
     $up = substr $up, 0, 1;
     $game->{UP} = $up;
+
+    $looser->Show(), &restart unless $up;
 }
 
 sub pickup {
@@ -181,6 +214,8 @@ sub pickup {
 
     my $up = $game->{UP};
     return unless $up;
+
+	# $cur will be the canvas "id" of the selected card
 
     my($cur) = $c->find('withtag' => 'current');
 
@@ -205,6 +240,19 @@ sub pickup {
 
     my $d = substr $card, 0, 1;
     if ( index($rank{$up}, $d) >= 0 ) {
+
+		# Move the card in 15 steps to the base pile
+
+        my $tox = 3 + ($c->cget('width'))/2 - $CARDWIDTH/2;
+        my $toy = ($c->cget('height')) - 3 - $CARDHEIGHT;
+	my $dx = ($tox - $x) / 15;
+	my $dy = ($toy - $y) / 15;
+
+	for (1..15) {
+	  $c->move($cur, $dx, $dy);
+	  $c->update;
+	}
+
         $c->delete($cur);
 
         $game->{UPCARD} = $card;
@@ -216,6 +264,10 @@ sub pickup {
 
         push @$deck, $card;
         next_base $game;
+
+		# If the selectd card is the top one, we have a winner !
+
+        $winner->Show(), &restart if $cur == $game->{TOPID};
     }
     else {
         $c->bell;
@@ -252,7 +304,7 @@ sub show_instr {
     my $tl = $mw->Toplevel(-title => 'Instructions');
 
     my $text = $tl->Scrolled('ROText',
-        -scrollbars => 'e',
+        -scrollbars => 'oe',
         -wrap       => 'word',
         -width      => 60,
         -height     => 30,
@@ -261,11 +313,176 @@ sub show_instr {
     )->pack(-expand => 1, -fill => 'both');
 
     $text->tagConfigure('title',
-        -font => '-*-Helvetica-Bold-R-Normal--*-180-*-*-*-*-*-*',
+        -font => $FONTBOLD
     );
 
-    # separate paragraphs with two newlines
-    my $instr = <<'EOInstr';
+	# The instructions are in __DATA__ :
+	# Separate paragraphs with two newlines
+
+    my $instr = join '', <DATA>;
+
+    # make the paragraphs into one long line
+    $instr =~ s/\n(?!\n)//g;
+
+    $text->insert('end', "Tk Timekiller Instructions\n", 'title');
+    $text->insert('end', $instr);
+}
+
+sub do_undo {
+    my $c    = shift;
+    my $game = shift;
+
+    my $up = $game->{UPCARD};
+    return unless $up;
+
+    my ($x, $y) = map int, @{ $game->{POS}{$up} }{ qw/ X Y / };
+
+	# Move the card in 15 steps from the base
+	# back pile to its old position in the field
+
+    my $fromx = 3 + ($c->cget('width'))/2 - $CARDWIDTH/2;
+    my $fromy = ($c->cget('height')) - 3 - $CARDHEIGHT;
+    my $dx = ($x - $fromx) / 15;
+    my $dy = ($y - $fromy) / 15;
+
+    my ($base) = $c->find('withtag' => 'base');
+
+    for (1..15) {
+      $c->move($base, $dx, $dy);
+      $c->update;
+    }
+
+    $c->create('image',
+        $x, $y,
+        -anchor => 'nw',
+        -image  => $card{$up},
+        -tags   => [ 'field', "card=$up" ],
+    );
+
+    $game->{UPCARD} = 0;
+
+    push @{ $game->{DECK} }, $game->{OLDBASE};
+    next_base $game;
+}
+
+## main
+my $mw = MainWindow->new(title => 'Tk Timekiller');
+my $f  = $mw->Frame(-bd => 2);
+my $c  = $f->Canvas(
+    -relief     => 'sunken',
+    -bd         => 4,
+    -background => "#008000",
+);
+
+init_cards $c;
+
+my $game;
+
+$game = new_game $c;
+
+my $about = $mw->Dialog(
+    -title		=> 'About',
+    -bitmap		=> 'info',
+    -default_button	=> 'OK',
+    -buttons		=> [ 'OK' ],
+    -font		=> $FONT,
+    -justify		=> 'center',
+    -text		=>
+        "tktk (Tk timekiller)\n" .
+        "gbacon\@cs.uah.edu\n\n".
+        "(updated $UPDATED)\n\n" .
+        "Tk version $Tk::VERSION",
+);
+$about->resizable(0, 0);
+
+$looser = $mw->Dialog(
+    -title		=> 'Sorry, You Lose!',
+    -bitmap		=> 'error',
+    -default_button	=> 'New Game',
+    -buttons		=> [ 'New Game' ],
+    -font		=> $FONTBOLD,
+    -justify		=> 'center',
+    -text		=>
+        "Sorry, you lose!\n:-("
+);
+$looser->resizable(0, 0);
+$looser->Subwidget('message')->configure(-foreground => 'red');
+$looser->Subwidget('bitmap')->configure(-foreground => 'red');
+
+$winner = $mw->Dialog(
+    -title		=> 'Congratulations!  You Win!',
+    -bitmap		=> 'info',
+    -default_button	=> 'New Game',
+    -buttons		=> [ 'New Game' ],
+    -font		=> $FONTBOLD,
+    -justify		=> 'center',
+    -text		=>
+        "Congratulations\nYou Win!"
+);
+$winner->resizable(0, 0);
+$winner->Subwidget('message')->configure(-foreground => 'blue');
+$winner->Subwidget('bitmap')->configure(-foreground => 'blue');
+
+my $mod = 'Alt';
+if ($^O eq 'MSWin32') {
+    $mod = 'Control';
+}
+elsif ($^O eq 'MacOS') {  # one of these days
+    $mod = 'Command';
+}
+
+sub restart { $game = new_game $c };
+sub undo    { do_undo $c, $game };
+
+my $menu = $mw->Menu;
+$menu->cascade(
+    -label     => '~Game',
+    -tearoff   => 0,
+    -menuitems => [
+        [
+            command      => '~New game',
+            -command     => \&restart,
+            -accelerator => "$mod+N",
+        ],
+        [
+            command      => '~Undo pickup',
+            -command     => \&undo,
+            -accelerator => "$mod+U",
+        ],
+        '',
+        [
+            command      => '~Quit',
+            -command     => [ destroy => $mw ],
+            -accelerator => "$mod+Q",
+        ],
+    ],
+);
+
+$menu->cascade(
+    -label     => '~Help',
+    -tearoff   => 0,
+    -menuitems => [
+        [ command => '~About',        -command => [ $about => 'Show'  ] ],
+        [ command => '~Instructions', -command => [ \&show_instr, $mw ] ],
+    ],
+);
+
+$mw->configure(-menu => $menu);
+$mw->resizable(0, 0);
+
+$mw->bind("<$mod-N>" => \&restart);
+$mw->bind("<$mod-n>" => \&restart);
+$mw->bind("<$mod-Q>" => [ destroy => $mw ]);
+$mw->bind("<$mod-q>" => [ destroy => $mw ]);
+$mw->bind("<$mod-U>" => \&undo);
+$mw->bind("<$mod-u>" => \&undo);
+
+$c->pack(-side => 'top');
+$f->pack;
+
+MainLoop;
+
+__END__
 
 
 The object of the game is to pick up all the cards.  You start with your
@@ -299,120 +516,3 @@ I found the card images at <URL:http://www.waste.org/~oxymoron/cards/>.
 
 
 Please send all patches, comments, and suggestions to <gbacon@cs.uah.edu>.
-EOInstr
-
-    # make the paragraphs into one long line
-    $instr =~ s/\n(?!\n)/ /g;
-
-    $text->insert('end', "Tk Timekiller Instructions\n", 'title');
-    $text->insert('end', $instr);
-}
-
-sub undo {
-    my $c    = shift;
-    my $game = shift;
-
-    my $up = $game->{UPCARD};
-    return unless $up;
-
-    my($x, $y) = map int, @{ $game->{POS}{$up} }{ qw/ X Y / };
-    $c->create('image',
-        $x, $y,
-        -anchor => 'nw',
-        -image  => $card{$up},
-        -tags   => [ 'field', "card=$up" ],
-    );
-
-    $game->{UPCARD} = 0;
-
-    push @{ $game->{DECK} }, $game->{OLDBASE};
-    next_base $game;
-}
-
-## main
-my $mw = MainWindow->new(title => 'Tk Timekiller');
-my $f  = $mw->Frame(-bd => 2);
-my $c  = $f->Canvas(
-    -relief     => 'sunken',
-    -bd         => 4,
-    -background => "#008000",
-);
-
-init_cards $c;
-
-my $game;
-
-$game = new_game $c;
-
-my $about = $mw->Dialog(
-    -title => 'About',
-    -bitmap => 'info',
-    -default_button => 'OK',
-    -buttons        => [ 'OK' ],
-    -font           => $FONT,
-    -text           =>
-        "tktk (Tk timekiller)\n" .
-        "gbacon\@cs.uah.edu\n\n".
-        "(updated $UPDATED)\n\n" .
-        "Tk version $Tk::VERSION",
-);
-$about->resizable(0, 0);
-
-my $mod = 'Alt';
-if ($^O eq 'MSWin32') {
-    $mod = 'Control';
-}
-elsif ($^O eq 'MacOS') {  # one of these days
-    $mod = 'Command';
-}
-
-my $restart = sub { $game = new_game $c };
-my $undo    = sub { undo $c, $game };
-
-my $menu = $mw->Menu;
-$menu->cascade(
-    -label     => '~Game',
-    -tearoff   => 0,
-    -menuitems => [
-        [
-            command      => '~New game',
-            -command     => $restart,
-            -accelerator => "$mod+N",
-        ],
-        [
-            command      => '~Undo pickup',
-            -command     => $undo,
-            -accelerator => "$mod+U",
-        ],
-        '',
-        [
-            command      => '~Quit',
-            -command     => [ destroy => $mw ],
-            -accelerator => "$mod+Q",
-        ],
-    ],
-);
-
-$menu->cascade(
-    -label     => '~Help',
-    -tearoff   => 0,
-    -menuitems => [
-        [ command => '~About',        -command => [ $about => 'Show'  ] ],
-        [ command => '~Instructions', -command => [ \&show_instr, $mw ] ],
-    ],
-);
-
-$mw->configure(-menu => $menu);
-$mw->resizable(0, 0);
-
-$mw->bind("<$mod-N>" => $restart);
-$mw->bind("<$mod-n>" => $restart);
-$mw->bind("<$mod-Q>" => [ destroy => $mw ]);
-$mw->bind("<$mod-q>" => [ destroy => $mw ]);
-$mw->bind("<$mod-U>" => $undo);
-$mw->bind("<$mod-u>" => $undo);
-
-$c->pack(-side => 'top');
-$f->pack;
-
-MainLoop;
