@@ -1,0 +1,418 @@
+#! /usr/bin/perl -w
+
+# Copyright (c) 2000 Greg Bacon <gbacon@cs.uah.edu>.
+# This program is free software.  You may distribute or modify it
+# under the terms of the Artistic license that is distributed with the
+# Perl Kit.
+#
+# The card images in the cards directory came from
+# <URL:http://www.waste.org/~oxymoron/cards/> and are distributed
+# under the terms of the GPL.
+
+# TODO:
+#
+# ???
+#
+# BUGS:
+#
+# ???
+
+my $CARDS;
+BEGIN {
+    # where the card images live
+    #$CARDS = "/foo/gbacon/src/perl/tktk/cards";
+    $CARDS = "cards";
+
+    unless (-d $CARDS) {
+        $0 =~ s!^.*/!!;
+        die "$0: cards directory `$CARDS' does not exist!\n" .
+            "(Did you forget to set \$CARDS to the proper value?)\n";
+    }
+}
+
+my $UPDATED = '2000/02/18';
+my $FONT = '-*-Helvetica-Medium-R-Normal--*-140-*-*-*-*-*-*';
+
+use strict;
+
+use Tk;
+use Tk::widgets qw/ Dialog ROText /;
+use vars qw/ $CARDWIDTH  $CARDHEIGHT /;
+
+# space between cards on a row
+use constant CARDSPACE => 2;
+
+sub shuffle {
+    use integer;
+
+    my $array = shift;
+    my $i;
+
+    for ($i = @$array; --$i; ) {
+        my $j = int rand ($i+1);
+        @$array[$i,$j] = @$array[$j,$i];
+    }
+}
+
+my %rank = (
+    a => '2k',
+    2 => '3a',
+    3 => '42',
+    4 => '53',
+    5 => '64',
+    6 => '75',
+    7 => '86',
+    8 => '97',
+    9 => 't8',
+    t => 'j9',
+    j => 'qt',
+    q => 'kj',
+    k => 'aq',
+);
+
+my %card;
+sub init_cards {
+    my $c = shift;
+
+    my @denom = keys %rank;
+    my @suits = qw/ h d c s /;
+
+    foreach my $d (@denom) {
+        foreach my $s (@suits) {
+            my $im = $c->Photo(-file => "$CARDS/$d$s.gif");
+            $card{"$d$s"} = $im;
+        }
+    }
+
+    $card{b} = $c->Photo(-file => "$CARDS/b.gif");
+
+    $CARDWIDTH  = $card{b}->width;
+    $CARDHEIGHT = $card{b}->height;
+
+    $c->configure(
+        -width  => 7*($CARDWIDTH + CARDSPACE) + 22,
+        -height => 5*$CARDHEIGHT + 18,
+    );
+}
+
+sub init_field {
+    my $game = shift;
+
+    my $c    = $game->{CANVAS};
+    my $deck = $game->{DECK};
+
+    my $width = $c->cget('width');
+
+    my $y = 7;
+    my $x;
+
+    for (1 .. 7) {
+        # the 3 + results in a better looking layout
+        $x = 3 + $width/2 - int($_/2) * ($CARDWIDTH+CARDSPACE);
+
+        if ($_ & 1) {  # odd-numbered row?
+            $x -= $CARDWIDTH/2;
+        }
+
+        my @row = splice @$deck, 0, $_;
+        for (@row) {
+            $c->create(
+                'image',
+                int $x, int $y,
+                -anchor => 'nw', 
+                -image  => $card{$_},
+                -tags   => [ 'field', "card=$_" ],
+            );
+
+            @{ $game->{POS}{$_} }{ qw/ X Y / } = ($x, $y);
+
+            $x += $CARDWIDTH + CARDSPACE;
+        }
+
+        $y += $CARDHEIGHT/2;
+    }
+}
+
+sub next_base {
+    my $game = shift;
+
+    my $c    = $game->{CANVAS};
+    my $deck = $game->{DECK};
+
+    my $ht = $c->cget('height');
+    my $wd = $c->cget('width');
+
+    # XXX: the 3 + is for a better looking layout
+    my $x = 3 + $wd/2 - $CARDWIDTH/2;
+    my $y = $ht - 3 - $CARDHEIGHT;
+
+    $c->delete('base');
+
+    my $image;
+    my $up;
+    if ($deck and @$deck) {
+        $up = pop @$deck;
+        $image = $card{$up};
+
+        $game->{UPCARD} = 0 unless $game->{UPCARD} eq $up;
+    }
+    else {
+        $image = $card{b};
+        $c->bind(qw/base <1>/ => '');
+        $up = 0;
+    }
+
+    $c->create('image',
+        int $x, int $y,
+        -anchor => 'nw',
+        -image  => $image,
+        -tags   => [ 'base', "card=$up" ],
+    );
+
+    $up = substr $up, 0, 1;
+    $game->{UP} = $up;
+}
+
+sub pickup {
+    my $game = shift;
+
+    my $c    = $game->{CANVAS};
+    my $deck = $game->{DECK};
+
+    my $up = $game->{UP};
+    return unless $up;
+
+    my($cur) = $c->find('withtag' => 'current');
+
+    my($card) = grep /^card=..$/, $c->gettags($cur);
+    return unless $card;
+
+    $card = substr $card, -2, 2;
+    my($x, $y) = @{ $game->{POS}{$card} }{qw/ X Y /};
+
+    # find returns numbers that appear to be indices
+    # into the display list--relying on this may be
+    # prove dangerous :-(
+    my @over = grep $_ > $cur,
+               $c->find('overlapping',
+                   $x, $y => $x+$CARDWIDTH, $y+$CARDHEIGHT
+               );
+
+    if (@over) {
+        $c->bell;
+        return;
+    }
+
+    my $d = substr $card, 0, 1;
+    if ( index($rank{$up}, $d) >= 0 ) {
+        $c->delete($cur);
+
+        $game->{UPCARD} = $card;
+
+        my($base) = $c->find('withtag' => 'base');
+        my($old)  = grep /^card=..$/, $c->gettags($base);
+        $old = substr $old, -2, 2;
+        $game->{OLDBASE} = $old;
+
+        push @$deck, $card;
+        next_base $game;
+    }
+    else {
+        $c->bell;
+    }
+}
+
+sub new_game {
+    my $c = shift;
+    $c->delete('all');
+
+    my $game = {};
+
+    $game->{CANVAS} = $c;
+
+    $game->{UPCARD}  = 0;
+    $game->{OLDBASE} = 0;
+
+    $game->{DECK} = [ grep $_ ne "b", keys %card ];
+    shuffle $game->{DECK};
+
+    init_field $game;
+
+    next_base $game;
+
+    $c->bind(qw/base  <1>/ => sub { next_base $game });
+    $c->bind(qw/field <1>/ => sub { pickup    $game });
+
+    $game;
+}
+
+sub show_instr {
+    my $mw = shift;
+
+    my $tl = $mw->Toplevel(-title => 'Instructions');
+
+    my $text = $tl->Scrolled('ROText',
+        -scrollbars => 'e',
+        -wrap       => 'word',
+        -width      => 60,
+        -height     => 30,
+        -font       => $FONT,
+        -setgrid    => 1,
+    )->pack(-expand => 1, -fill => 'both');
+
+    $text->tagConfigure('title',
+        -font => '-*-Helvetica-Bold-R-Normal--*-180-*-*-*-*-*-*',
+    );
+
+    # separate paragraphs with two newlines
+    my $instr = <<'EOInstr';
+
+
+The object of the game is to pick up all the cards.  You start with your
+base card (centered at the bottom).  You may pick up (by clicking) any
+uncovered card whose denomination is one away from the base card's
+denomination (the ace is adjacent to both the king and the deuce).  Suit
+does not matter.  Attempting to illegally pick up a card (if the card is
+covered or if the card's denomination is not adjacent to the base card's
+denomination) will result in a terminal bell.  Once you pick up a card,
+it becomes the new base card.
+
+
+If you there are no more cards to pick up, click the base card.  This is
+equivalent to pulling the next card from the bottom of the pile.  When
+the pile is exhausted, a card will be placed face down at the base.  The
+game is over when no more cards are left in the field or when the base
+is exhausted and no legal moves remain.
+
+
+There is an undo option that lets you undo your last pickup.  You can't
+undo once you've flipped the next base card because that would give an
+unfair advantage.
+
+
+My wife taught me this solitaire game (whose name I don't know but would
+be glad to learn).  I immediately enjoyed it but decided that I'd let Tk
+and Fisher-Yates do the layout and shuffling.
+
+
+I found the card images at <URL:http://www.waste.org/~oxymoron/cards/>.
+
+
+Please send all patches, comments, and suggestions to <gbacon@cs.uah.edu>.
+EOInstr
+
+    # make the paragraphs into one long line
+    $instr =~ s/\n(?!\n)/ /g;
+
+    $text->insert('end', "Tk Timekiller Instructions\n", 'title');
+    $text->insert('end', $instr);
+}
+
+sub undo {
+    my $c    = shift;
+    my $game = shift;
+
+    my $up = $game->{UPCARD};
+    return unless $up;
+
+    my($x, $y) = map int, @{ $game->{POS}{$up} }{ qw/ X Y / };
+    $c->create('image',
+        $x, $y,
+        -anchor => 'nw',
+        -image  => $card{$up},
+        -tags   => [ 'field', "card=$up" ],
+    );
+
+    $game->{UPCARD} = 0;
+
+    push @{ $game->{DECK} }, $game->{OLDBASE};
+    next_base $game;
+}
+
+## main
+my $mw = MainWindow->new(title => 'Tk Timekiller');
+my $f  = $mw->Frame(-bd => 2);
+my $c  = $f->Canvas(
+    -relief     => 'sunken',
+    -bd         => 4,
+    -background => "#008000",
+);
+
+init_cards $c;
+
+my $game;
+
+$game = new_game $c;
+
+my $about = $mw->Dialog(
+    -title => 'About',
+    -bitmap => 'info',
+    -default_button => 'OK',
+    -buttons        => [ 'OK' ],
+    -font           => $FONT,
+    -text           =>
+        "tktk (Tk timekiller)\n" .
+        "gbacon\@cs.uah.edu\n\n".
+        "(updated $UPDATED)\n\n" .
+        "Tk version $Tk::VERSION",
+);
+$about->resizable(0, 0);
+
+my $mod = 'Alt';
+if ($^O eq 'MSWin32') {
+    $mod = 'Control';
+}
+elsif ($^O eq 'MacOS') {  # one of these days
+    $mod = 'Command';
+}
+
+my $restart = sub { $game = new_game $c };
+my $undo    = sub { undo $c, $game };
+
+my $menu = $mw->Menu;
+$menu->cascade(
+    -label     => '~Game',
+    -tearoff   => 0,
+    -menuitems => [
+        [
+            command      => '~New game',
+            -command     => $restart,
+            -accelerator => "$mod+N",
+        ],
+        [
+            command      => '~Undo pickup',
+            -command     => $undo,
+            -accelerator => "$mod+U",
+        ],
+        '',
+        [
+            command      => '~Quit',
+            -command     => [ destroy => $mw ],
+            -accelerator => "$mod+Q",
+        ],
+    ],
+);
+
+$menu->cascade(
+    -label     => '~Help',
+    -tearoff   => 0,
+    -menuitems => [
+        [ command => '~About',        -command => [ $about => 'Show'  ] ],
+        [ command => '~Instructions', -command => [ \&show_instr, $mw ] ],
+    ],
+);
+
+$mw->configure(-menu => $menu);
+$mw->resizable(0, 0);
+
+$mw->bind("<$mod-N>" => $restart);
+$mw->bind("<$mod-n>" => $restart);
+$mw->bind("<$mod-Q>" => [ destroy => $mw ]);
+$mw->bind("<$mod-q>" => [ destroy => $mw ]);
+$mw->bind("<$mod-U>" => $undo);
+$mw->bind("<$mod-u>" => $undo);
+
+$c->pack(-side => 'top');
+$f->pack;
+
+MainLoop;

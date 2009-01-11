@@ -1,0 +1,620 @@
+<HTML>
+<HEAD>
+<TITLE>Tktk: A Perl/Tk Solitaire Game</TITLE>
+</HEAD>
+
+<BODY>
+
+<P>
+Reprinted courtesy of The Perl Journal,
+<A Href="http://www.tpj.com/">http://www.tpj.com</A>.
+<HR>
+
+<!-- INDEX BEGIN -->
+
+<UL>
+
+	<LI><A HREF="#Tktk_A_Perl_Tk_Solitaire_Game">Tktk: A Perl/Tk Solitaire Game</A>
+	<UL>
+
+		<LI><A HREF="#The_Rules">The Rules</A>
+		<LI><A HREF="#A_First_Cut">A First Cut</A>
+		<UL>
+
+			<LI><A HREF="#Shuffling">Shuffling</A>
+			<LI><A HREF="#Layout">Layout</A>
+			<LI><A HREF="#Show_the_Tableau_">Show the Tableau!</A>
+		</UL>
+
+		<LI><A HREF="#Would_You_Like_To_Play_A_Game_">Would You Like To Play A Game?</A>
+		<UL>
+
+			<LI><A HREF="#Making_the_Moves">Making the Moves</A>
+			<LI><A HREF="#Laying_the_Base">Laying the Base</A>
+			<LI><A HREF="#Pick_Up_Lines">Pick Up Lines</A>
+			<LI><A HREF="#Oops_">Oops!</A>
+		</UL>
+
+		<LI><A HREF="#Finishing_touches">Finishing touches</A>
+	</UL>
+
+</UL>
+<!-- INDEX END -->
+
+<HR>
+<TABLE Width="100%" Bgcolor="#ffff66">
+<TR><TD Colspan=2 Align=center><FONT Size="+1">URLs</FONT></TD></TR>
+<TR>
+    <TD>Tk</TD>
+    <TD Align=right><A Href="http://www.cpan.org/">http://www.cpan.org/</A></TD>
+</TR>
+<TR>
+    <TD>Pyramid rules</TD>
+    <TD Align=right><A Href="http://www.semicolon.com/solitaire/rules/pyramidrules.html">http://www.semicolon.com/solitaire/rules/pyramidrules.html</A></TD>
+</TR>
+<TR>
+    <TD>Card images</TD>
+    <TD Align=right><A Href="http://www.waste.org/~oxymoron/cards/">http://www.waste.org/~oxymoron/cards/</A></TD>
+</TR>
+<TR>
+    <TD>Tktk source code</TD>
+    <TD Align=right><A Href="http://home.hiwaay.net/~gbacon/perl/tktk.tar.gz">http://home.hiwaay.net/~gbacon/perl/tktk.tar.gz</A></TD>
+</TR>
+</TABLE>
+<HR>
+<P>
+<H1><A NAME="Tktk_A_Perl_Tk_Solitaire_Game">Tktk: A Perl/Tk Solitaire Game</A></H1>
+<P>
+One evening, I saw my wife playing a solitaire game that I'd never seen
+before (and whose name I still don't know). I asked her to explain the
+rules. The game turns out to be a simpler variation of Pyramid, which is
+described at <A Href="http://www.semicolon.com/solitaire/rules/pyramidrules.html">http://www.semicolon.com/solitaire/rules/pyramidrules.html</A>.
+
+<P>
+<HR>
+<H2><A NAME="The_Rules">The Rules</A></H2>
+<P>
+To play, you lay out the cards in a seven row pyramid. The first row
+contains one card, the second two, and so on. (Don't get too excited if you
+think I'm describing the drinking game Drunk Driver.) When laying
+subsequent rows, you should cover each card in the previous row with two
+cards (imagine staggered joints in brickmasonry), as shown in
+<A Href="#Figure1">Figure 1</A>.
+<P>
+<A Name="Figure1"><B>Figure 1: The start of the game.</B></A><BR>
+<IMG Src="start.png" Alt="[Figure 1]" Width=543 Height=575>
+<P>
+If you want to
+impress your solitaire aficionado buddies, call these 28 cards the
+<EM>tableau</EM>. The rest of the cards are the <EM>stock</EM>. To play, place the stock's bottom card face up on top of the stock. This
+top card is called the <EM>base</EM>. Your goal is to pick up all the cards in the tableau. You may pick up
+any uncovered card whose denomination or rank is adjacent to the
+denomination of the base card, regardless of suit.  For instance, if your
+base card is a six, you can pick up a five or a seven.  Aces are consider
+adjacent to both deuces and kings.
+
+<P>
+When you pick up a card from the
+tableau, it becomes the new base card. When you decide that you want a new
+base card (usually when you can't pick up any more from the tableau), you
+flip from the bottom of the stock. The game is over when you empty the
+tableau (you win) or when you exhaust the stock (you lose).
+
+<P>
+It turned out to be a fun game. A solitaire game has to be tantalizing to
+hold the player's interest, and this one definitely is. My wife would laugh
+cruelly when I bemoaned being so close to winning (she says she's only won
+about three times in all the years that she's played). I realized that she
+had infected me with an awful meme, so now I'll spread it to you.
+
+<P>
+<HR>
+<H2><A NAME="A_First_Cut">A First Cut</A></H2>
+<P>
+The more I played, the more I became impatient with tedious tasks like
+shuffling the deck and laying out the cards. I kept thinking, ``I should
+implement this game in Perl,'' and eventually I did.
+I had a lot of fun in the
+process, and this article will describe the steps involved.
+
+<P>
+The first decision was whether the interface should be graphical or
+character-based. I chose graphical. (Sorry, I'm a wuss--I even play the
+tiled X11 version of <EM>nethack</EM>.) The next step was to find some card images (because I didn't want to
+wake up the Gimp), and a web search found <A Href="http://www.waste.org/~oxymoron/cards/">http://www.waste.org/~oxymoron/cards/</A>. The images have sensible
+names: <CODE>qs.gif</CODE> is the queen of spades, <CODE>th.gif</CODE> is the ten of hearts, and so on.
+
+<P>
+<HR>
+<H3><A NAME="Shuffling">Shuffling</A></H3>
+<P>
+Before we can play, we have to shuffle the deck. The Fisher-Yates algorithm
+to the rescue:
+
+<P>
+<PRE>    # Fisher-Yates shuffle
+    sub shuffle {
+        use integer;
+</PRE>
+<P>
+<PRE>        my $array = shift;
+        my $i;
+</PRE>
+<P>
+<PRE>        for ($i = @$array; --$i; ) {
+            my $j = int rand ($i+1);
+            @$array[$i,$j] = @$array[$j,$i];
+        }
+    }
+</PRE>
+<P>
+Of course, we need a deck to shuffle. I decided to build a hash whose keys
+are the card denominations and suits (the basenames of the card images) and
+whose values are <CODE>Tk::Photo</CODE> objects created from the card images:
+
+<P>
+<PRE>    my %card;
+    sub init_cards {
+        my $c = shift;
+</PRE>
+<P>
+<PRE>        my @denom = ( 2 .. 9, qw/ t j q k a / );
+        my @suits = qw/ h d c s /;
+</PRE>
+<P>
+<PRE>        my @dim = ( -width =&gt; CARDWIDTH, -height =&gt; CARDHEIGHT );
+</PRE>
+<P>
+<PRE>        foreach my $d (@denom) {
+            foreach my $s (@suits) {
+                my $im = $c-&gt;Photo(-file =&gt; &quot;cards/$d$s.gif&quot;, @dim);
+                $card{&quot;$d$s&quot;} = $im;
+            }
+        }
+    }
+</PRE>
+<P>
+<HR>
+<H3><A NAME="Layout">Layout</A></H3>
+<P>
+Now that we have a shuffled deck, we need to lay out the cards. I
+considered using Gtk, but I have more experience with Tk and wanted to play
+my game as soon as possible.
+
+<P>
+Using Tk, we create a <CODE>Tk::Canvas</CODE> object and place <CODE>Tk::Photo</CODE> image items on it. The layout is pretty simple. The tableau's vertical axis
+of symmetry coincides with the vertical center line of the canvas. For each
+row, we compute half the width of the whole row, move left half that
+distance, and place cards from left to right. The code looks like this
+(note that I called the tableau the ``field''):
+
+<P>
+<PRE>    my %pos;
+    sub init_field {
+        my $c    = shift;
+        my $deck = shift;
+</PRE>
+<P>
+<PRE>        my $width = $c-&gt;cget('width');
+</PRE>
+<P>
+<PRE>        my $y = 7;
+        my $x;
+</PRE>
+<P>
+<PRE>        for (1 .. 7) {
+            # the 3 + results in a better looking layout
+            $x = 3 + $width/2 - int($_/2) * (CARDWIDTH+CARDSPACE);
+</PRE>
+<P>
+<PRE>            if ($_ &amp; 1) {  # odd-numbered row?
+                $x -= CARDWIDTH/2;
+            }
+</PRE>
+<P>
+<PRE>            # place $_ cards
+            my @row = splice @$deck, 0, $_;
+            for (@row) {
+                $c-&gt;create(
+                    'image',
+                    int $x, int $y,
+                    -anchor =&gt; 'nw', 
+                    -image  =&gt; $card{$_},
+                    -tags   =&gt; [ 'field', &quot;card=$_&quot; ],
+                );
+</PRE>
+<P>
+<PRE>                $x += CARDWIDTH + CARDSPACE;
+            }
+</PRE>
+<P>
+<PRE>            $y += CARDHEIGHT/2;
+        }
+    }
+</PRE>
+<P>
+Notice that we didn't have to bother with <EM>clipping</EM>, the process of deciding which pixels should be displayed. We simply
+placed the rows from back to front (that is, from the top of the pyramid to
+the bottom), letting new items cover anything that might be under them.
+This is called the <EM>painter's algorithm</EM> and, conveniently, achieves the arrangement we want.
+
+<P>
+<HR>
+<H3><A NAME="Show_the_Tableau_">Show the Tableau!</A></H3>
+<P>
+The heart of the program ties it all together:
+
+<P>
+<PRE>    my $mw = MainWindow-&gt;new;
+    my $c  = $mw-&gt;Canvas(
+        -width  =&gt; 7*CARDWIDTH  + 22,
+        -height =&gt; 5*CARDHEIGHT + 18,
+    );
+</PRE>
+<P>
+<PRE>    init_cards $c;
+    my @deck = keys %card;
+    shuffle \@deck;
+    init_field $c, \@deck;
+</PRE>
+<P>
+<PRE>    $c-&gt;pack;
+</PRE>
+<P>
+<PRE>    MainLoop;
+</PRE>
+<P>
+This program is enough to produce a layout similar to 
+<A Href="#Figure1">Figure 1</A>.
+
+<P>
+<HR>
+<H2><A NAME="Would_You_Like_To_Play_A_Game_">Would You Like To Play A Game?</A></H2>
+<P>
+I once had a math professor who obsessively moved radicals out of the
+denominators of fractions because ``our teachers like it better this way.''
+You'd think he would have been able to cast off those chains when he took
+his Ph.D. Programmers (or at least pedants like me) feel the same sort of
+guilt about rampant use of globals. I decided to aggregate all the game
+state information into an anonymous hash and then pass the state to the
+differen subroutines. There's a Rob Pike quote that I like to repeat: ``The
+O-O languages give you more of course - prettier syntax, derived types and
+so on--but conceptually they provide little extra.'' I bring it up here
+because too many programmers would have carried this aggregation a step
+further to defining a class that implements the game. That would be hunting
+rabbits with a tank because it's not likely that we'll have more than one
+game running at once and because I don't plan on inheriting and overriding
+methods from the game.
+
+<P>
+<HR>
+<H3><A NAME="Making_the_Moves">Making the Moves</A></H3>
+<P>
+Our program is about to become at least a little interesting as we make
+it recognize
+and respond to events. The events that we're interested in
+are when the user clicks on a card in the tableau and when the user clicks
+on the base card.
+
+<P>
+Tk operates under the <EM>event driven</EM> model. This means that the programmer
+says to Tk, ``When a certain type of event happens (like a mouse click or a
+key press), execute this code.'' The code that Tk executes in response to
+an event is known as a <EM>callback</EM>. The way to register callbacks (that is, how you ask Tk to execute callbacks when
+certain events take place), is to use the <CODE>bind()</CODE> method. Here's a simple example:
+
+<P>
+<PRE>    $parent-&gt;bind(qw/field &lt;1&gt;/ =&gt; sub { print &quot;Saw a click!\n&quot; });
+</PRE>
+<P>
+This tells Tk to print a message when the user clicks Button-1 (usually the
+left mouse button) on an item or widget with the
+<CODE>field</CODE> tag. See the Tk::bind documentation for details.
+
+<P>
+Tags are simple strings that we can associate with items and widgets. When
+we laid the cards in the field, we gave them two tags: the <CODE>field</CODE>
+tag, and a tag indictating which card it is.
+
+<P>
+<PRE>    $c-&gt;create(
+        'image',
+        int $x, int $y,
+        -anchor =&gt; 'nw',
+        -image  =&gt; $card{$_},
+        <B>-tags   =&gt; [ 'field', &quot;card=$_&quot; ],</B>
+    );
+</PRE>
+<P>
+As you can see, tags allow the programmer to create a logical association
+among different widgets.
+
+<P>
+<HR>
+<H3><A NAME="Laying_the_Base">Laying the Base</A></H3>
+<P>
+Now that we know how to deal with events, the code to cycle through the
+stock is a SMOP (Simple Matter Of Programming). If there's a card on the bottom of
+the stock, we display and remember it. Otherwise, we display the back of a
+card and tell Tk to stop executing callbacks when the user clicks the base
+card.
+
+<P>
+<PRE>    sub next_base {
+        my $game = shift;
+    
+        my $c    = $game-&gt;{CANVAS};
+        my $deck = $game-&gt;{DECK};
+    
+        my $ht = $c-&gt;cget('height');
+        my $wd = $c-&gt;cget('width');
+    
+        # XXX: the 3 + is for a better looking layout
+        my $x = 3 + $wd/2 - CARDWIDTH/2;
+        my $y = $ht - 3 - CARDHEIGHT;
+    
+        # lose any base card that may be there
+        $c-&gt;delete('base');
+    
+        my $image;
+        my $up;
+        if ($deck and @$deck) {
+            $up = pop @$deck;
+            $image = $card{$up};
+        }
+        else {
+            $image = $card{b};
+            $c-&gt;bind(qw/base &lt;1&gt;/ =&gt; '');
+            $up = 0;
+        }
+    
+        $up = substr $up, 0, 1;
+    
+        $c-&gt;create('image',
+            int $x, int $y,
+            -anchor =&gt; 'nw',
+            -image  =&gt; $image,
+            -tags   =&gt; [ 'base' ],
+        );
+    
+        $game-&gt;{UP} = $up;
+    }
+</PRE>
+<P>
+We register this callback with
+
+<P>
+<PRE>    $c-&gt;bind(qw/base &lt;1&gt;/ =&gt; sub { next_base $game });
+</PRE>
+<P>
+<HR>
+<H3><A NAME="Pick_Up_Lines">Pick Up Lines</A></H3>
+<P>
+To legally pick up a card, it must be completely uncovered. The
+<CODE>Tk::Canvas</CODE> class provides a method for asking which items overlap a certain rectangular
+area. Before we can do that, we have to know where (in terms of canvas
+coordinates) we laid each card. We add this line to <CODE>init_field()</CODE>:
+
+<P>
+<PRE>    @{ $game-&gt;{POS}{$_} }{ qw/ X Y / } = ($x, $y);
+</PRE>
+<P>
+Tk associates the <CODE>current</CODE> tag with the item or widget involved in triggering the current callback. We
+can ask Tk what other tags the ``current'' item has to figure out what card
+it is. The code looks like this:
+
+<P>
+<PRE>    my($cur) = $c-&gt;find('withtag' =&gt; 'current');
+    my($card) = grep /^card=..$/, $c-&gt;gettags($cur);
+</PRE>
+<P>
+In the rules, I stated that it is legal to pick up a card if it is
+uncovered and its denomination is adjacent to the base card's denomination.
+We can ask Tk whether any cards are covering the selected card:
+
+<P>
+<PRE>    $card = substr $card, -2, 2;
+    my($x, $y) = @{ $game-&gt;{POS}{$card} }{qw/ X Y /};
+    
+    my @over = grep $_ &gt; $cur,
+               $c-&gt;find('overlapping',
+                   $x, $y =&gt; $x+$CARDWIDTH, $y+$CARDHEIGHT
+               );
+</PRE>
+<P>
+Armed with the knowledge of the denominations of the base card and the
+selected card, and we need to be able to decide whether those denominations
+are adjacent. I originally used a big, overly verbose hash of hashes where
+the test for denomination adjacency looked like
+
+<P>
+<PRE>    if ($rank{$base_denom}{NEXT} eq $field_denom or
+        $rank{$base_denom}{PREV} eq $field_denom)
+    {
+        ...;
+    }
+</PRE>
+<P>
+Stephen Lidie suggested the following data structure:
+
+<P>
+<PRE>    my %rank = (
+        a =&gt; '2k',
+        2 =&gt; '3a',
+        # ...
+        q =&gt; 'kj',
+        k =&gt; 'aq',
+    );
+</PRE>
+<P>
+The test for a legal move then becomes
+
+<P>
+<PRE>    if ( index($rank{$base_denom}, $field_denom) &gt;= 0 ) {
+        $c-&gt;delete($cur);    # remove the card from the tableau
+        push @$deck, $card;
+        next_base $game;     # ...and make it the new base card
+    }
+</PRE>
+<P>
+If we determine at some point that the insidious user is attempting to make
+an illegal move, we ring the bell with <CODE>$c-&gt;bell</CODE> and return.
+
+<P>
+<HR>
+<H3><A NAME="Oops_">Oops!</A></H3>
+<P>
+As I was testing the game, I would pick up a card and then realize that I
+should have picked up another card. Because of the bookkeeping in
+<CODE>init_field()</CODE> that kept track of where the cards were in the tableau, to undo we need
+only replace the card in the tableau and the last base card on the stock.
+The code is simple:
+
+<P>
+<PRE>    sub undo {
+        my $c    = shift;
+        my $game = shift;
+    
+        my $up = $game-&gt;{UPCARD};
+        return unless $up;
+    
+        my($x, $y) = map int, @{ $game-&gt;{POS}{$up} }{ qw/ X Y / };
+        $c-&gt;create('image',
+            $x, $y,
+            -anchor =&gt; 'nw',
+            -image  =&gt; $card{$up},
+            -tags   =&gt; [ 'field', &quot;card=$up&quot; ],
+        );
+    
+        $game-&gt;{UPCARD} = 0;
+    
+        push @{ $game-&gt;{DECK} }, $game-&gt;{OLDBASE};
+        next_base $game;
+    }
+</PRE>
+<P>
+Notice the <CODE>$game-&gt;{UPCARD}</CODE> check. This makes it so that players may only undo a
+pickup. If we also allowed players to undo after flipping from the bottom
+of the stock, they would enjoy the luxury of a one-card lookahead, and
+that would make the game too easy.)
+
+<P>
+<HR>
+<H2><A NAME="Finishing_touches">Finishing touches</A></H2>
+<P>
+At this point, I had a playable game, but I wanted to add a more
+polished feel. The first touch was to add a check to make
+sure that the cards directory was where we expected:
+
+<P>
+<PRE>    my $CARDS;
+    BEGIN {
+        # where the card images live
+        $CARDS = &quot;/your/directory/of/card/images&quot;;
+    
+        unless (-d $CARDS) {
+            $0 =~ s!^.*/!!;
+            die &quot;$0: cards directory `$CARDS' does not exist!\n&quot; .
+                &quot;(Did you forget to set \$CARDS to the proper value?)\n&quot;;
+        }
+    }
+</PRE>
+<P>
+What GUI would be complete without menus and menu accelerators?
+
+<P>
+<PRE>    my $restart = sub { $game = new_game $c };
+    my $undo    = sub { undo $c, $game };
+    
+    my $mod = 'Alt';
+    if ($^O eq 'MSWin32') {
+        $mod = 'Control';
+    }
+    elsif ($^O eq 'MacOS') {
+        $mod = 'Command';
+    }
+</PRE>
+<P>
+<PRE>    my $menu = $mw-&gt;Menu;
+    $menu-&gt;cascade(
+        -label     =&gt; '~File',
+        -tearoff   =&gt; 0,
+        -menuitems =&gt; [
+            [
+                command      =&gt; '~New game',
+                -command     =&gt; $restart,
+                -accelerator =&gt; &quot;$mod+N&quot;,
+            ],
+            [
+                command      =&gt; '~Undo pickup',
+                -command     =&gt; $undo,
+                -accelerator =&gt; &quot;$mod+U&quot;,
+            ],
+            '',
+            [
+                command      =&gt; '~Quit',
+                -command     =&gt; [ destroy =&gt; $mw ],
+                -accelerator =&gt; &quot;$mod+Q&quot;,
+            ],
+        ],
+    );
+    
+    $mw-&gt;configure(-menu =&gt; $menu);
+    $mw-&gt;resizable(0, 0);
+    
+    $mw-&gt;bind(&quot;&lt;$mod-n&gt;&quot; =&gt; $restart);
+    $mw-&gt;bind(&quot;&lt;$mod-q&gt;&quot; =&gt; [ destroy =&gt; $mw ]);
+    $mw-&gt;bind(&quot;&lt;$mod-u&gt;&quot; =&gt; $undo);
+</PRE>
+<P>
+Any artist will tell you that the work isn't done until it's signed:
+
+<P>
+<PRE>    my $about = $mw-&gt;Dialog(
+        -title =&gt; 'About',
+        -bitmap =&gt; 'info',
+        -default_button =&gt; 'OK',
+        -buttons        =&gt; [ 'OK' ],
+        -font           =&gt; $FONT,
+        -text           =&gt;
+            &quot;tktk (Tk timekiller)\n&quot; .
+            &quot;gbacon\@cs.uah.edu\n\n&quot;.
+            &quot;(updated $UPDATED)\n\n&quot; .
+            &quot;Tk version $Tk::VERSION&quot;,
+    );
+</PRE>
+<P>
+The result is shown in <A Href="#Figure2">Figure 2</A>.
+
+<P>
+<A Name="Figure2"><B>Figure 2: A Dialog box containing information about the game.</B></A><BR>
+<IMG Src="loser.png" Alt="[Figure 2]" Width=543 Height=575>
+
+<P>
+I wish it would do something cool when the player empties the tableau, but
+I haven't come up with anything cool enough. If you have any ideas, please
+mail them to me.
+
+<P>
+As you've seen, Tk provides a flexible framework for developing graphical
+user interfaces. This program was an easy effort: it only took a couple of
+days to develop. The result was a fun alternative to <CODE>sol.exe</CODE> for killing time. Grab the code from the TPJ website and give it a try.
+
+<P>
+<B>__END__</B>
+
+<P>
+<EM>
+Greg Bacon &lt;<EM>gbacon@cs.uah.edu</EM>&gt; is a Perl evangelist who must receive <CODE>$1</CODE> million in
+contributions from the Faithful. Otherwise, he risks being struck down by
+Larry Wall. Greg would also like to remind you that there's no more
+important safety rule than to wear these--safety glasses.
+</EM>
+<P>
+<HR>
+Reprinted courtesy of The Perl Journal,
+<A Href="http://www.tpj.com/">http://www.tpj.com</A>.
+
+</BODY>
+
+</HTML>
